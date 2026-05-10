@@ -514,21 +514,60 @@ if not ok then
 end
 
 -- ============================================================================
+-- POST-PROCESS: Detect for loops
+-- ============================================================================
+local function detect_for_loops(input_lines)
+    local result = {}
+    local i = 1
+    while i <= #input_lines do
+        local indent_str, first_num_str
+        if input_lines[i] then
+            indent_str, first_num_str = input_lines[i]:match('^(%s*)print%((%d+)%)$')
+        end
+        if first_num_str then
+            local first_num = tonumber(first_num_str)
+            local seq_count = 1
+            local j = i + 1
+            while j <= #input_lines do
+                local _, next_num
+                if input_lines[j] then
+                    _, next_num = input_lines[j]:match('^(%s*)print%((%d+)%)$')
+                end
+                if next_num and tonumber(next_num) == first_num + seq_count then
+                    seq_count = seq_count + 1
+                    j = j + 1
+                else
+                    break
+                end
+            end
+            if seq_count >= 3 then
+                local last_num = first_num + seq_count - 1
+                result[#result+1] = indent_str .. "for i = " .. first_num .. ", " .. last_num .. " do"
+                result[#result+1] = indent_str .. "    print(i)"
+                result[#result+1] = indent_str .. "end"
+                i = j
+            else
+                result[#result+1] = input_lines[i]
+                i = i + 1
+            end
+        else
+            result[#result+1] = input_lines[i]
+            i = i + 1
+        end
+    end
+    return result
+end
+
+lines = detect_for_loops(lines)
+
+-- ============================================================================
 -- OUTPUT
 -- ============================================================================
 local output = table.concat(lines, "\n")
-local header = [[-- ============================================================================
--- Deobfuscated by WeAreDevs/Prometheus Deobfuscator
--- Full source reconstruction via runtime tracing + Roblox API stubs
--- ============================================================================
-
-]]
-
-output = header .. output
 
 if outfile then
     local f = io.open(outfile, "w")
-    f:write(output)
+    f:write(output .. "\n")
     f:close()
     real_print("Written to: " .. outfile)
     real_print("Lines: " .. #lines)

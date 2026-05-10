@@ -1,84 +1,61 @@
-# WeAreDevs / Prometheus Lua Deobfuscator
+# WeAreDevs/Prometheus Lua Deobfuscator
 
-Деобфускатор для Lua-скриптов, обфусцированных [WeAreDevs Obfuscator](https://wearedevs.net/obfuscator), основанным на [Prometheus](https://github.com/prometheus-lua/Prometheus).
+Deobfuscates scripts protected by the WeAreDevs/Prometheus obfuscator. Outputs full source code.
 
-## Возможности
-
-- **Полная реконструкция исходников** — восстанавливает настоящий Lua код с переменными, вызовами API, колбэками
-- **Поддержка Roblox** — стабы для game, Instance, Drawing, Enum, task, и всех сервисов
-- **Расшифровка строк** — custom base64 + shuffled таблица строк
-- **Обход anti-tamper** — использует полное окружение для обхода защиты Prometheus
-- **Event/Connect** — восстанавливает структуру событий (MouseButton1Click, FocusLost и т.д.)
-- **Поддержка exploit API** — syn, fluxus, crypt, WebSocket, writefile и т.д.
-
-## Требования
-
-- Python 3.6+
-- Lua 5.1 (`lua5.1`)
+## Usage
 
 ```bash
-# Ubuntu/Debian
-sudo apt-get install lua5.1
-```
+# Direct Lua execution (fastest)
+lua5.1 full_tracer.lua obfuscated.lua output.lua
 
-## Использование
-
-```bash
-# Вывод в stdout
-python3 deobfuscate.py obfuscated.lua
-
-# Сохранить в файл
+# Via Python wrapper
 python3 deobfuscate.py obfuscated.lua output.lua
 ```
 
-## Как работает
+## Requirements
 
-### 1. Расшифровка строк
-Извлекает таблицу строк (octal escape sequences), применяет swap-операции, декодирует custom base64.
+- `lua5.1` (apt install lua5.1)
+- Python 3.6+ (for wrapper only)
 
-### 2. Full Source Reconstruction (`full_tracer.lua`)
-Основной метод — запуск кода в sandbox с полной эмуляцией Roblox API:
-- Все `game:GetService()` → автоматическое создание переменных
-- `Instance.new()` → создание объектов с правильными именами
-- `.Connect(function() ... end)` → выполнение колбэков и запись структуры
-- Property assignments → `object.Property = value`
-- Exploit API стабы (getgenv, writefile, request, etc.)
+## What it does
 
-### 3. Legacy Tracer (`tracer.lua`)
-Для простых скриптов с `print` — перехват вывода с распознаванием for-циклов и переменных.
+1. Bypasses anti-tamper checks via complete Lua environment
+2. Intercepts all API calls (print, game:GetService, Instance.new, etc.)
+3. Tracks property assignments and event connections
+4. Detects for loops from sequential patterns
+5. Outputs reconstructed source code
 
-## Пример
+## Example output
 
-**Обфусцированный файл (624KB):**
+### Simple script (17KB):
+```lua
+print("TEST")
+print("123")
+for i = 1, 10 do
+    print(i)
+end
 ```
-return(function(...)local N={"\057\102\107\087...
-```
 
-**Восстановленный код:**
+### Roblox script (624KB):
 ```lua
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-...
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "ArqelRedSystem"
-screenGui.ResetOnSpawn = false
 screenGui.Parent = CoreGui
 ...
-textButton2.MouseButton1Click:Connect(function()
-    -- callback code
-end)
 ```
 
-## Ограничения
+## Files
 
-- **Имена переменных** — Prometheus удаляет оригинальные имена. Деобфускатор использует имена на основе типов (`frame`, `textLabel`, `uICorner`)
-- **Control flow** — if/else и while реконструируются только по execution path
-- **Один путь выполнения** — трейсер проходит один execution path
+- `full_tracer.lua` - Main deobfuscator (Lua 5.1)
+- `deobfuscate.py` - Python wrapper with timeout
+- `devirtualize.py` - Static VM block analysis (advanced, shows raw VM structure)
 
-## Файлы
+## Limitations
 
-- `deobfuscate.py` — Главный Python-скрипт (координация + анализ строк)
-- `full_tracer.lua` — Полная реконструкция с Roblox стабами
-- `tracer.lua` — Legacy трейсер для простых скриптов
-- `example_output.lua` — Пример деобфусцированного кода (624KB → 460 строк)
+- Variable names cannot be recovered (Prometheus strips them)
+- `local x = "value"` assignments only visible when the value is used in a tracked call
+- Control flow (if/else) inside the VM is partially reconstructed via callback execution
+- Requires lua5.1 runtime
