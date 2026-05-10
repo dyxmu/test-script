@@ -214,29 +214,53 @@ class PrometheusDeobfuscator:
         return self.accessor_offset
 
     def execute_and_capture(self):
-        """Execute the obfuscated code using the Lua tracer with anti-tamper bypass"""
-        tracer_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tracer.lua')
+        """Execute the obfuscated code using full_tracer.lua for complete source reconstruction"""
+        tracer_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'full_tracer.lua')
 
         if not os.path.exists(tracer_path):
-            print("[-] tracer.lua not found, falling back to direct execution", file=sys.stderr)
+            # Try legacy tracer
+            tracer_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tracer.lua')
+
+        if not os.path.exists(tracer_path):
+            print("[-] No tracer found, falling back to direct execution", file=sys.stderr)
             return self._direct_execute()
 
         try:
+            # Use temp file for output
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False) as tmp:
+                tmp_output = tmp.name
+
             result = subprocess.run(
-                ['lua5.1', tracer_path, self.source_path],
-                capture_output=True, text=True, timeout=60
+                ['lua5.1', tracer_path, self.source_path, tmp_output],
+                capture_output=True, text=True, timeout=120
             )
-            # Extract reconstructed source between markers
-            stdout = result.stdout
-            if '__DEOBF_START__' in stdout and '__DEOBF_END__' in stdout:
-                start = stdout.index('__DEOBF_START__') + len('__DEOBF_START__\n')
-                end = stdout.index('__DEOBF_END__')
-                return stdout[start:end].strip()
-            else:
-                # Tracer didn't produce markers, fall back
-                return self._direct_execute()
+
+            # Check if output file was created with content
+            if os.path.exists(tmp_output):
+                with open(tmp_output, 'r') as f:
+                    content = f.read()
+                os.unlink(tmp_output)
+                if content.strip():
+                    return content
+
+            # If full_tracer didn't produce output, try legacy tracer
+            legacy_tracer = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tracer.lua')
+            if os.path.exists(legacy_tracer) and 'full_tracer' in tracer_path:
+                result = subprocess.run(
+                    ['lua5.1', legacy_tracer, self.source_path],
+                    capture_output=True, text=True, timeout=60
+                )
+                stdout = result.stdout
+                if '__DEOBF_START__' in stdout and '__DEOBF_END__' in stdout:
+                    start = stdout.index('__DEOBF_START__') + len('__DEOBF_START__\n')
+                    end = stdout.index('__DEOBF_END__')
+                    return stdout[start:end].strip()
+
+            return self._direct_execute()
         except subprocess.TimeoutExpired:
             print("[-] Tracer timed out, falling back to direct execution", file=sys.stderr)
+            if os.path.exists(tmp_output):
+                os.unlink(tmp_output)
             return self._direct_execute()
         except Exception as e:
             print(f"[-] Tracer error: {e}", file=sys.stderr)
@@ -268,6 +292,15 @@ class PrometheusDeobfuscator:
         # No traced output - code doesn't produce output (e.g., UI framework)
         # Provide analysis based on decoded strings instead
         return self._analyze_from_strings()
+
+    def _has_roblox_apis(self):
+        """Check if the script uses Roblox APIs"""
+        roblox_keywords = ['GetService', 'Instance', 'workspace', 'game', 'Players',
+                           'RunService', 'UDim2', 'Vector3', 'CFrame', 'TweenService']
+        for s in self.decoded_strings:
+            if s in roblox_keywords:
+                return True
+        return False
 
     def _analyze_from_strings(self):
         """For code that doesn't produce output, analyze from decoded strings"""
